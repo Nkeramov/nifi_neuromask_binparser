@@ -1,20 +1,4 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-package com.isgneuro.nifi.neuromask.processors;
+package com.nifi.neuromask.processors;
 
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
@@ -71,6 +55,7 @@ public class NeuromaskBinParser extends AbstractProcessor {
     private List<PropertyDescriptor> properties;
     private Set<Relationship> relationships;
 	private Integer floatPrecision;
+	private static final int DEFAULT_BUFFER_SIZE = 1024;
 
     @Override
     protected void init(final ProcessorInitializationContext context) {
@@ -106,43 +91,42 @@ public class NeuromaskBinParser extends AbstractProcessor {
 		if ( flowFile == null ) {
 			return;
 		}
-
-		Map<Byte, String> entryFields = new HashMap<Byte, String>() {{
-			put((byte) 0x10, "Содержание углекислого газа");
-			put((byte) 0x11, "Содержание кислорода в выдохе");
-			put((byte) 0x12, "Температура тела");
-			put((byte) 0x13, "Влажность");
-			put((byte) 0x14, "Индекс летучих органических соединений в выдохе (TVOC)");
-			put((byte) 0x15, "Атмосферное давление");
-			put((byte) 0x16, "Температура внешняя");
-			put((byte) 0x17, "Показания электрокардиограммы");
-			put((byte) 0x18, "IMU ax");
-			put((byte) 0x19, "IMU ay");
-			put((byte) 0x1A, "IMU az");
-			put((byte) 0x1B, "IMU gx");
-			put((byte) 0x1C, "IMU gy");
-			put((byte) 0x1D, "IMU gz");
-			put((byte) 0x1E, "IMU mx");
-			put((byte) 0x1F, "IMU my");
-			put((byte) 0x20, "IMU mz");
-			put((byte) 0x21, "Фотоплетизмограмма красный");
-			put((byte) 0x22, "Фотоплетизмограмма ИК");
-			put((byte) 0x23, "Фотоплетизмограмма зеленый");
-			put((byte) 0x24, "Уровень наполненности крови кислородом (SpO2)");
-			put((byte) 0x25, "Высота");
-			put((byte) 0x26, "ЧСС");
-			put((byte) 0x27, "Шаги");
-			put((byte) 0x28, "Заряд АКБ");
-			put((byte) 0x29, "Индекс летучих органических соединений в выдохе (TVOC) (наружный датчик)");
-			put((byte) 0x2A, "Содержание углекислого газа.(наружный датчик)");
-			put((byte) 0x2B, "Влажность (наружный датчик)");
-			put((byte) 0x00, "Резерв");
-		}};
+        Map<Byte, String> entryFields = new HashMap<Byte, String>() {{
+            put((byte) 0x10, "Exhaled carbon dioxide content");
+            put((byte) 0x11, "Exhaled oxygen content");
+            put((byte) 0x12, "Body temperature");
+            put((byte) 0x13, "Humidity of exhalation");
+            put((byte) 0x14, "Index of volatile organic compounds (TVOC) in exhalation");
+            put((byte) 0x15, "Atmosphere pressure");
+            put((byte) 0x16, "Outside temperature");
+            put((byte) 0x17, "Electrocardiogram readings");
+            put((byte) 0x18, "IMU ax");
+            put((byte) 0x19, "IMU ay");
+            put((byte) 0x1A, "IMU az");
+            put((byte) 0x1B, "IMU gx");
+            put((byte) 0x1C, "IMU gy");
+            put((byte) 0x1D, "IMU gz");
+            put((byte) 0x1E, "IMU mx");
+            put((byte) 0x1F, "IMU my");
+            put((byte) 0x20, "IMU mz");
+            put((byte) 0x21, "Photoplethysmogram red");
+            put((byte) 0x22, "Photoplethysmogram IR");
+            put((byte) 0x23, "Photoplethysmogram green");
+            put((byte) 0x24, "Blood oxygen level (SpO2)");
+            put((byte) 0x25, "Height");
+            put((byte) 0x26, "Heart rate");
+            put((byte) 0x27, "Steps");
+            put((byte) 0x28, "Battery charge");
+            put((byte) 0x29, "Exhaled Volatile Organic Compound (TVOC) Index (external sensor)");
+            put((byte) 0x2A, "Carbon dioxide content (external sensor)");
+            put((byte) 0x2B, "Outside humidity");
+            put((byte) 0x00, "Reserved");
+        }};
 		List<String> outputJsons = new ArrayList<>();
 
 		session.read(flowFile, new InputStreamCallback() {
 			@Override
-			public void process(InputStream in) throws IOException {
+			public void process(InputStream in) {
 				int bufSize = 512;
 				try(BufferedInputStream fin = new BufferedInputStream(in, bufSize))
 				{
@@ -157,7 +141,7 @@ public class NeuromaskBinParser extends AbstractProcessor {
 						c[i] = (byte)(x & 0xff);
 					}
 					if (m == 0) {
-						List<byte[]> entrie = new ArrayList<>();
+						List<byte[]> entries = new ArrayList<>();
 						ByteArrayOutputStream tmpEntry = new ByteArrayOutputStream();
 						byte f = 0;
 						int x = fin.read();
@@ -166,7 +150,7 @@ public class NeuromaskBinParser extends AbstractProcessor {
 							if (c[0] == (byte)0xF1 && c[1] == (byte)0xAA && c[2] == (byte)0xF0 && c[3] == (byte)0xAA) {
 								tmpEntry.write(c[0]);
 								tmpEntry.write(c[1]);
-								entrie.add(tmpEntry.toByteArray());
+								entries.add(tmpEntry.toByteArray());
 								tmpEntry.reset();
 								f = 1;
 							}
@@ -181,9 +165,9 @@ public class NeuromaskBinParser extends AbstractProcessor {
 							}
 							x = fin.read();
 						}
-						entrie.add(tmpEntry.toByteArray());
-						getLogger().info(String.format("Found %d entries", entrie.size()));
-						for(byte[] entry : entrie) {
+						entries.add(tmpEntry.toByteArray());
+						getLogger().info(String.format("Found %d entriess", entries.size()));
+						for(byte[] entry : entries) {
 							int j = 0;
 							for(byte b:entry) {
 								if ((j < 11) || j > 11 && ((j - 11) % 5 != 0))
@@ -193,7 +177,7 @@ public class NeuromaskBinParser extends AbstractProcessor {
 							int entrySize = ((entry[3] & 0xff) << 8) | (entry[2] & 0xff);
 							int entryId = ((entry[6] & 0xff) << 16) | (entry[5] & 0xff) << 8 | (entry[4] & 0xff);
 							int entryTimestamp = ((entry[10] & 0xff) << 24) | ((entry[9] & 0xff) << 16) | (entry[8] & 0xff) << 8 | (entry[7] & 0xff);
-							getLogger().info(String.format("size = %d | id = %d | time = %d", entrySize, entryId, entryTimestamp));
+							getLogger().info(String.format("size = %d, id = %d, time = %d", entrySize, entryId, entryTimestamp));
 							ObjectMapper mapper = new ObjectMapper();
 							ObjectNode rootNode = mapper.createObjectNode();
 							rootNode.put("size", Integer.toString(entrySize));
@@ -203,7 +187,7 @@ public class NeuromaskBinParser extends AbstractProcessor {
 								if (entryFields.containsKey(entry[i])) {
 									int asInt = (entry[i+1] & 0xFF) | ((entry[i+2] & 0xFF) << 8) | ((entry[i+3] & 0xFF) << 16) | ((entry[i+4] & 0xFF) << 24);
 									float asFloat = roundToNDecimalPlaces(Float.intBitsToFloat(asInt), floatPrecision);
-									getLogger().info(String.format("%s | %s", entryFields.get(entry[i]), String.format("%." + DEFAULT_FLOAT_PRECISION + "f", asFloat)));
+									getLogger().info(String.format("%s: %s", entryFields.get(entry[i]), String.format("%." + DEFAULT_FLOAT_PRECISION + "f", asFloat)));
 									rootNode.put(entryFields.get(entry[i]), Float.toString(asFloat));
 								}
 								else
@@ -216,12 +200,14 @@ public class NeuromaskBinParser extends AbstractProcessor {
 							}
 							catch (JsonProcessingException e) {
 								getLogger().error("JSON processing error ", e.getMessage());
+
 							}
 						}
 					}
 				}
-				catch(IOException e){
-					getLogger().error("Bin file reading error", e.getMessage());
+				catch(Exception e){
+					getLogger().error("BIN-file reading error", e.getMessage());
+					throw new ProcessException(e);
 				}
 			}
 		});
